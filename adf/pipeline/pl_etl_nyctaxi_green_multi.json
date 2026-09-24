@@ -1,0 +1,55 @@
+{
+	"name": "pl_etl_nyctaxi_green_multi",
+	"properties": {
+		"activities": [
+			{
+				"name": "fe_months",
+				"type": "ForEach",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@pipeline().parameters.months",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "run_month",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"policy": {
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "pl_etl_nyctaxi_green",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"year_month": {
+										"value": "@item()",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"months": {
+				"type": "array",
+				"defaultValue": [
+					"2019-01",
+					"2019-02",
+					"2019-03"
+				]
+			}
+		},
+		"annotations": []
+	}
+}
