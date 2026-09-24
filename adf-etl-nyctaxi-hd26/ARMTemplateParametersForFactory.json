@@ -1,0 +1,21 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"value": "adf-etl-nyctaxi-hd26"
+		},
+		"ls_adls_datalake_properties_typeProperties_url": {
+			"value": "https://stetlnyctaxihd26.dfs.core.windows.net/"
+		},
+		"ls_http_nyctlc_properties_typeProperties_url": {
+			"value": "https://d37ci6vzurychx.cloudfront.net/"
+		},
+		"ls_sql_nyctaxi_properties_typeProperties_server": {
+			"value": "sql-etl-nyctaxi-hd26.database.windows.net"
+		},
+		"ls_sql_nyctaxi_properties_typeProperties_database": {
+			"value": "sqldb-nyctaxi"
+		}
+	}
+}
