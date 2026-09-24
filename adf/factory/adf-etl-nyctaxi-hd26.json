@@ -1,0 +1,15 @@
+{
+	"name": "adf-etl-nyctaxi-hd26",
+	"properties": {
+		"trustModeClaimForMi": {
+			"value": "Disabled",
+			"editable": true
+		}
+	},
+	"location": "eastus2",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "45982655-19a8-4fb1-91c8-9adaa459b6d7",
+		"tenantId": "78919324-3091-4581-8910-5fb6a22d5545"
+	}
+}

@@ -1,0 +1,232 @@
+{
+	"name": "df_transform_green_trips",
+	"properties": {
+		"description": "Transform + Load : typage, nettoyage, colonnes calculees, jointure avec les zones, chargement SQL et Parquet curated",
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"linkedService": {
+						"referenceName": "ls_adls_datalake",
+						"type": "LinkedServiceReference"
+					},
+					"name": "srcTrips",
+					"description": "Courses taxis verts (Parquet brut)"
+				},
+				{
+					"linkedService": {
+						"referenceName": "ls_adls_datalake",
+						"type": "LinkedServiceReference"
+					},
+					"name": "srcZones",
+					"description": "Table des zones TLC (CSV)"
+				}
+			],
+			"sinks": [
+				{
+					"dataset": {
+						"referenceName": "ds_sql_table",
+						"type": "DatasetReference"
+					},
+					"name": "sinkSql"
+				},
+				{
+					"linkedService": {
+						"referenceName": "ls_adls_datalake",
+						"type": "LinkedServiceReference"
+					},
+					"name": "sinkCurated"
+				}
+			],
+			"transformations": [
+				{
+					"name": "castTypes"
+				},
+				{
+					"name": "selectTyped"
+				},
+				{
+					"name": "filterValid"
+				},
+				{
+					"name": "addMetrics"
+				},
+				{
+					"name": "filterDuration"
+				},
+				{
+					"name": "addSpeed"
+				},
+				{
+					"name": "filterSpeed"
+				},
+				{
+					"name": "lkpPickupZone"
+				},
+				{
+					"name": "selPickup"
+				},
+				{
+					"name": "lkpDropoffZone"
+				},
+				{
+					"name": "finalColumns"
+				},
+				{
+					"name": "addAudit"
+				}
+			],
+			"scriptLines": [
+				"parameters{",
+				"     year_month as string ('2019-01')",
+				"}",
+				"source(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false,",
+				"     format: 'parquet',",
+				"     fileSystem: 'raw',",
+				"     wildcardPaths:[(concat('green_tripdata/year_month=', $year_month, '/*.parquet'))]) ~> srcTrips",
+				"source(output(",
+				"          LocationID as integer,",
+				"          Borough as string,",
+				"          Zone as string,",
+				"          service_zone as string",
+				"     ),",
+				"     useSchema: false,",
+				"     allowSchemaDrift: false,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'raw',",
+				"     folderPath: 'taxi_zones',",
+				"     fileName: 'taxi_zone_lookup.csv',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true) ~> srcZones",
+				"srcTrips derive(vendor_id = toInteger(byName('vendorID')),",
+				"          pickup_datetime = toTimestamp(byName('lpepPickupDatetime')),",
+				"          dropoff_datetime = toTimestamp(byName('lpepDropoffDatetime')),",
+				"          pu_location_id = toInteger(byName('puLocationId')),",
+				"          do_location_id = toInteger(byName('doLocationId')),",
+				"          passengers = toInteger(byName('passengerCount')),",
+				"          distance_miles = toDouble(byName('tripDistance')),",
+				"          fare = toDecimal(byName('fareAmount'), 10, 2),",
+				"          tip = toDecimal(byName('tipAmount'), 10, 2),",
+				"          tolls = toDecimal(byName('tollsAmount'), 10, 2),",
+				"          total = toDecimal(byName('totalAmount'), 10, 2),",
+				"          payment_code = toInteger(byName('paymentType')),",
+				"          trip_type_code = toInteger(byName('tripType'))) ~> castTypes",
+				"castTypes select(mapColumn(",
+				"          vendor_id,",
+				"          pickup_datetime,",
+				"          dropoff_datetime,",
+				"          pu_location_id,",
+				"          do_location_id,",
+				"          passengers,",
+				"          distance_miles,",
+				"          fare,",
+				"          tip,",
+				"          tolls,",
+				"          total,",
+				"          payment_code,",
+				"          trip_type_code",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> selectTyped",
+				"selectTyped filter(!isNull(pickup_datetime) && !isNull(dropoff_datetime) && dropoff_datetime > pickup_datetime && distance_miles > 0 && distance_miles < 200 && fare >= 0 && total > 0 && toString(pickup_datetime, 'yyyy-MM') == $year_month) ~> filterValid",
+				"filterValid derive(trip_duration_min = round(toDouble(dropoff_datetime - pickup_datetime) / 60000.0, 2),",
+				"          pickup_date = toDate(pickup_datetime),",
+				"          pickup_hour = hour(pickup_datetime),",
+				"          pickup_weekday = dayOfWeek(pickup_datetime),",
+				"          tip_pct = iif(fare > 0, round(toDouble(tip) / toDouble(fare) * 100.0, 2), toDouble(0)),",
+				"          payment_type = case(payment_code == 1, 'Carte de credit', payment_code == 2, 'Comptant', payment_code == 3, 'Sans frais', payment_code == 4, 'Litige', 'Inconnu')) ~> addMetrics",
+				"addMetrics filter(trip_duration_min >= 1 && trip_duration_min <= 180) ~> filterDuration",
+				"filterDuration derive(avg_speed_mph = round(distance_miles / (trip_duration_min / 60.0), 2)) ~> addSpeed",
+				"addSpeed filter(avg_speed_mph <= 80) ~> filterSpeed",
+				"filterSpeed, srcZones lookup(pu_location_id == LocationID,",
+				"     multiple: false,",
+				"     pickup: 'any',",
+				"     broadcast: 'auto')~> lkpPickupZone",
+				"lkpPickupZone select(mapColumn(",
+				"          vendor_id,",
+				"          pickup_datetime,",
+				"          dropoff_datetime,",
+				"          pickup_date,",
+				"          pickup_hour,",
+				"          pickup_weekday,",
+				"          pu_location_id,",
+				"          do_location_id,",
+				"          pickup_borough = Borough,",
+				"          pickup_zone = Zone,",
+				"          passengers,",
+				"          distance_miles,",
+				"          trip_duration_min,",
+				"          avg_speed_mph,",
+				"          fare,",
+				"          tip,",
+				"          tip_pct,",
+				"          tolls,",
+				"          total,",
+				"          payment_type,",
+				"          trip_type_code",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> selPickup",
+				"selPickup, srcZones lookup(do_location_id == LocationID,",
+				"     multiple: false,",
+				"     pickup: 'any',",
+				"     broadcast: 'auto')~> lkpDropoffZone",
+				"lkpDropoffZone select(mapColumn(",
+				"          vendor_id,",
+				"          pickup_datetime,",
+				"          dropoff_datetime,",
+				"          pickup_date,",
+				"          pickup_hour,",
+				"          pickup_weekday,",
+				"          pickup_borough,",
+				"          pickup_zone,",
+				"          dropoff_borough = Borough,",
+				"          dropoff_zone = Zone,",
+				"          passengers,",
+				"          distance_miles,",
+				"          trip_duration_min,",
+				"          avg_speed_mph,",
+				"          fare,",
+				"          tip,",
+				"          tip_pct,",
+				"          tolls,",
+				"          total,",
+				"          payment_type,",
+				"          trip_type = trip_type_code",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> finalColumns",
+				"finalColumns derive(source_month = $year_month,",
+				"          loaded_at_utc = currentUTC()) ~> addAudit",
+				"addAudit sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     deletable:false,",
+				"     insertable:true,",
+				"     updateable:false,",
+				"     upsertable:false,",
+				"     recreate:true,",
+				"     format: 'table',",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     errorHandlingOption: 'stopOnFirstError') ~> sinkSql",
+				"addAudit sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'parquet',",
+				"     fileSystem: 'curated',",
+				"     folderPath: (concat('green_trips/', $year_month)),",
+				"     truncate: true,",
+				"     umask: 0022,",
+				"     preCommands: [],",
+				"     postCommands: [],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> sinkCurated"
+			]
+		}
+	}
+}

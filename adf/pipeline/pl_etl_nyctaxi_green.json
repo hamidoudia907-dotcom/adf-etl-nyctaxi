@@ -1,0 +1,176 @@
+{
+	"name": "pl_etl_nyctaxi_green",
+	"properties": {
+		"description": "ETL complet : Extract (Azure Open Datasets + zones TLC vers raw) puis Transform + Load (Data Flow vers Azure SQL et curated)",
+		"activities": [
+			{
+				"name": "cp_trips_opendata_to_raw",
+				"description": "Extract : copie les Parquet des taxis verts (Azure Open Datasets) vers raw/green_tripdata/year_month=<mois>/ (noms de fichiers conserves : une relance ecrase au lieu de dupliquer)",
+				"type": "Copy",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 2,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "BinarySource",
+						"storeSettings": {
+							"type": "AzureBlobStorageReadSettings",
+							"recursive": true,
+							"wildcardFolderPath": {
+								"value": "@concat('green/puYear=', substring(pipeline().parameters.year_month, 0, 4), '/puMonth=', string(int(substring(pipeline().parameters.year_month, 5, 2))))",
+								"type": "Expression"
+							},
+							"wildcardFileName": "*.parquet",
+							"deleteFilesAfterCompletion": false
+						},
+						"formatSettings": {
+							"type": "BinaryReadSettings"
+						}
+					},
+					"sink": {
+						"type": "BinarySink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings",
+							"copyBehavior": "PreserveHierarchy"
+						}
+					},
+					"enableStaging": false
+				},
+				"inputs": [
+					{
+						"referenceName": "ds_blob_opendata_binary",
+						"type": "DatasetReference"
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "ds_adls_binary_folder",
+						"type": "DatasetReference",
+						"parameters": {
+							"folder": {
+								"value": "@concat('green_tripdata/year_month=', pipeline().parameters.year_month)",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "cp_zones_http_to_raw",
+				"type": "Copy",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 2,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "BinarySource",
+						"storeSettings": {
+							"type": "HttpReadSettings",
+							"requestMethod": "GET"
+						},
+						"formatSettings": {
+							"type": "BinaryReadSettings"
+						}
+					},
+					"sink": {
+						"type": "BinarySink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						}
+					},
+					"enableStaging": false
+				},
+				"inputs": [
+					{
+						"referenceName": "ds_http_binary",
+						"type": "DatasetReference",
+						"parameters": {
+							"relative_url": "misc/taxi_zone_lookup.csv"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "ds_adls_binary",
+						"type": "DatasetReference",
+						"parameters": {
+							"folder": "taxi_zones",
+							"file_name": "taxi_zone_lookup.csv"
+						}
+					}
+				]
+			},
+			{
+				"name": "df_transform_load",
+				"description": "Transform + Load : nettoyage, enrichissement, jointure zones, chargement SQL (dbo.green_trips) et Parquet curated",
+				"type": "ExecuteDataFlow",
+				"dependsOn": [
+					{
+						"activity": "cp_trips_opendata_to_raw",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "cp_zones_http_to_raw",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 2,
+					"retryIntervalInSeconds": 90,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"dataflow": {
+						"referenceName": "df_transform_green_trips",
+						"type": "DataFlowReference",
+						"parameters": {
+							"year_month": {
+								"value": "'@{pipeline().parameters.year_month}'",
+								"type": "Expression"
+							}
+						},
+						"datasetParameters": {
+							"sinkSql": {
+								"schema_name": "dbo",
+								"table_name": "green_trips"
+							}
+						}
+					},
+					"compute": {
+						"coreCount": 8,
+						"computeType": "General"
+					},
+					"traceLevel": "Fine"
+				}
+			}
+		],
+		"parameters": {
+			"year_month": {
+				"type": "string",
+				"defaultValue": "2019-01"
+			}
+		},
+		"annotations": [],
+		"lastPublishTime": "2026-09-23T15:34:06Z"
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

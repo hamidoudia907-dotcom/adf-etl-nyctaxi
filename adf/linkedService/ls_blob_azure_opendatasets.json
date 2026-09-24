@@ -1,0 +1,12 @@
+{
+	"name": "ls_blob_azure_opendatasets",
+	"type": "Microsoft.DataFactory/factories/linkedservices",
+	"properties": {
+		"annotations": [],
+		"type": "AzureBlobStorage",
+		"typeProperties": {
+			"containerUri": "https://azureopendatastorage.blob.core.windows.net/nyctlc",
+			"authenticationType": "Anonymous"
+		}
+	}
+}
